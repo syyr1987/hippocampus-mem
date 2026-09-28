@@ -1,0 +1,7 @@
+# 运行产物
+__pycache__/
+*.pyc
+*.db
+*.log
+.memory_key
+.env
