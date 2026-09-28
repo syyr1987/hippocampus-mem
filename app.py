@@ -279,22 +279,29 @@ def search(req: SearchRequest):
     vec_sim = {}
     embed_key = get_embed_key()
     if embed_key:
-        try:
-            qvec = embed_texts([query], embed_key)[0]
-            vecs = store.get_vecs(req.user_id)
-            if vecs:
-                id2idx = {r[0]: i for i, r in enumerate(rows)}
-                sims = []
-                for mid, v in vecs:
-                    idx = id2idx.get(mid)
-                    if idx is not None:
-                        s = cos_sim(qvec, v)
-                        sims.append((s, idx))
-                        vec_sim[idx] = s
-                sims.sort(key=lambda x: -x[0])
-                vec_rank = [i for _, i in sims[:200]]
-        except Exception:
-            pass
+        vec_ok = False
+        for _attempt in range(2):
+            try:
+                qvec = embed_texts([query], embed_key)[0]
+                vecs = store.get_vecs(req.user_id)
+                if vecs:
+                    id2idx = {r[0]: i for i, r in enumerate(rows)}
+                    sims = []
+                    for mid, v in vecs:
+                        idx = id2idx.get(mid)
+                        if idx is not None:
+                            s = cos_sim(qvec, v)
+                            sims.append((s, idx))
+                            vec_sim[idx] = s
+                    sims.sort(key=lambda x: -x[0])
+                    vec_rank = [i for _, i in sims[:200]]
+                vec_ok = True
+                break
+            except Exception:
+                continue
+        if not vec_ok:
+            # embedding 失败：fail-closed 返回空（拒答优先，避免 abstention/无关查询崩）
+            return SearchResponse(data=[])
     # 融合
     rank_lists = [rl for rl in (bm_rank, vec_rank) if rl]
     if not rank_lists:
