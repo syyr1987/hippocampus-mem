@@ -30,7 +30,7 @@ pip install -r requirements.txt
 - `HPC_KEY_FILE` 智谱 key 文件路径（本地部署；与 HPC_EMBED_KEY 二选一）
 - `HPC_MEMORY_KEY` Memory System Key（鉴权，必须）
 - `HPC_DB` SQLite 路径（**必须放本地盘**，默认 `/var/tmp/hippocampus.db`；放云盘同步目录会 disk I/O error）
-- `HPC_MIN_SCORE` 拒答阈值（默认 0.25）
+- `HPC_MIN_SCORE` 拒答阈值（默认 0.5；实测 embedding-3 余弦分布整体偏高，0.25 挡不住无关查询，2026-09-28 上调）
 
 ## 契约自测
 ```bash

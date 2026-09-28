@@ -19,7 +19,7 @@ services:
       - key: HPC_EMBED_DIM
         value: "1024"
       - key: HPC_MIN_SCORE
-        value: "0.25"
+        value: "0.5"
       # 以下两个 Key 必须在 Render Dashboard 手动配置（不进仓库）：
       # - HPC_EMBED_KEY：智谱 embedding API Key 原文
       # - HPC_MEMORY_KEY：Memory System Key（与 AML 申请绑定的一致）
