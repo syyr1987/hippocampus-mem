@@ -44,6 +44,10 @@ TOKEN_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_\-']*")
 
 
 def get_embed_key():
+    # 优先：环境变量直传（Render 等 PaaS 部署，无本地文件）
+    direct = os.environ.get("HPC_EMBED_KEY", "").strip()
+    if direct:
+        return direct
     if KEY_PATH.exists():
         return KEY_PATH.read_text().strip()
     return os.environ.get("ZHIPU_API_KEY", "")

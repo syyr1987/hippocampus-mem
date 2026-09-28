@@ -1,0 +1,25 @@
+# Render 部署清单（AML Cycle 2 参赛版）
+# 用法：在 Render Dashboard 选 Blueprint/New Web Service，连 GitHub 仓库 syyr1987/hippocampus-mem
+# 或在 Render 上手动创建 Web Service，填以下配置
+services:
+  - type: web
+    name: hippocampus-mem
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python app.py
+    healthCheckPath: /health
+    envVars:
+      - key: HPC_PORT
+        value: 10000
+      - key: HPC_DB
+        value: /tmp/hippocampus.db
+      - key: HPC_EMBED_MODEL
+        value: embedding-3
+      - key: HPC_EMBED_DIM
+        value: "1024"
+      - key: HPC_MIN_SCORE
+        value: "0.25"
+      # 以下两个 Key 必须在 Render Dashboard 手动配置（不进仓库）：
+      # - HPC_EMBED_KEY：智谱 embedding API Key 原文
+      # - HPC_MEMORY_KEY：Memory System Key（与 AML 申请绑定的一致）
