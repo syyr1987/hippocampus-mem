@@ -37,6 +37,10 @@ EMBED_MODEL = os.environ.get("HPC_EMBED_MODEL", "embedding-3")
 EMBED_DIM = int(os.environ.get("HPC_EMBED_DIM", "1024"))
 ZHIPU_URL = "https://open.bigmodel.cn/api/paas/v4/embeddings"
 MIN_SCORE = float(os.environ.get("HPC_MIN_SCORE", "0.25"))  # 相关性阈值（拒答线）
+RERANK = os.environ.get("HPC_RERANK", "0") == "1"  # LLM 相关性拒答（abstention 型）
+RERANK_CANDS = int(os.environ.get("HPC_RERANK_CANDS", "20"))  # 拒答判定候选数
+RERANK_MODEL = os.environ.get("HPC_RERANK_MODEL", "glm-4-flash")
+RERANK_URL = os.environ.get("HPC_RERANK_URL", "https://open.bigmodel.cn/api/paas/v4/chat/completions")
 TOPK_LIMIT = 100
 KEY_PATH = Path(os.environ.get("HPC_KEY_FILE", str(BASE_DIR / ".memory_key")))
 STOPWORDS = set("""a an and are as at be but by for if in into is it no not of on or such that the their then there these they this to was will with i you your we our he she they them me my mine yours ours""".split())
@@ -161,6 +165,51 @@ def rrf(rank_lists, k=60):
         for rank, i in enumerate(rl):
             scores[i] = scores.get(i, 0.0) + 1.0 / (k + rank + 1)
     return sorted(scores.items(), key=lambda x: -x[1])
+
+RERANK_SYSTEM = """你是记忆检索系统的判定器。系统根据用户查询检索出一批候选记忆消息。
+判断这些候选消息中是否含有【与查询相关、可用于回答查询的实质信息】。
+判定规则：
+- 1 = 有：候选消息包含与查询相关的实质内容，可用于回答查询。包括需要综合多条消息推导的情况；也包括"我是否提过/说过/做过某事"类查询中，候选里出现过相关事件或陈述的情况。
+- 0 = 无：候选消息只是提到相同词汇或主题，但没有任何与查询实质相关的内容；或与查询完全无关。
+对于"库里没有相关信息"的查询（abstention），候选会显得主题沾边但答不上来，此时判 0。
+只输出 JSON：{"has_answer": 0 或 1}，不要任何额外文字。"""
+
+
+def rerank_relevant(query, cand_texts, key):
+    """LLM 整组判定候选是否含可直接回答查询的信息；返回 True/False；失败返回 None（调用方降级）。"""
+    if not cand_texts:
+        return False
+    NL = chr(10)
+    lines = NL.join(f"[{i + 1}] {c[:300]}" for i, c in enumerate(cand_texts))
+    user = f"用户查询：{query}{NL}{NL}候选记忆消息列表：{NL}{lines}"
+    body = json.dumps({
+        "model": RERANK_MODEL,
+        "messages": [
+            {"role": "system", "content": RERANK_SYSTEM},
+            {"role": "user", "content": user},
+        ],
+        "max_tokens": 16,
+        "temperature": 0.0,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        RERANK_URL,
+        data=body,
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        content = data["choices"][0]["message"]["content"].strip()
+        start, end = content.find("{"), content.rfind("}")
+        if start < 0 or end < 0:
+            return None
+        obj = json.loads(content[start:end + 1])
+        v = obj.get("has_answer")
+        if v not in (0, 1):
+            return None
+        return bool(v)
+    except Exception:
+        return None
 
 
 # ---------- API 模型 ----------
@@ -308,6 +357,13 @@ def search(req: SearchRequest):
         return SearchResponse(data=[])
     merged = rrf(rank_lists, k=60)
     max_sc = merged[0][1] if merged else 1.0
+    # LLM 相关性拒答：候选整组判定（abstention/无关 → 返回空；真相关/失败降级 → 走原逻辑）
+    if RERANK and embed_key:
+        cands = merged[:RERANK_CANDS]
+        cand_texts = [rows[i][3] for i, _ in cands]
+        has = rerank_relevant(query, cand_texts, embed_key)
+        if has is False:
+            return SearchResponse(data=[])
     # 拒答：绝对 cosine 低于阈值则截断（无 embedding 时用归一化 RRF）
     has_vec = bool(vec_sim)
     out = []
